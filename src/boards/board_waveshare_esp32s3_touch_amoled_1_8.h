@@ -1,0 +1,50 @@
+// src/boards/board_waveshare_esp32s3_touch_amoled_1_8.h
+#pragma once
+
+// Display physical resolution (SH8601 AMOLED, 2× upscaled from canvas).
+// Keep name LCD_W_PHYS / LCD_H_PHYS — display.cpp uses these directly via pins.h.
+#define LCD_W_PHYS  368
+#define LCD_H_PHYS  448
+
+// Logical canvas (half of physical — upscale done in hwDisplayPush).
+// BOARD_ prefix required here: display.h wraps these as constexpr int HW_W = BOARD_HW_W;
+// without the prefix the preprocessor would expand "constexpr int HW_W = HW_W" to "constexpr int 184 = 184".
+#define BOARD_HW_W        184
+#define BOARD_HW_H        224
+
+// Safe draw area: symmetric inset from bezel corners (calibrated with DEBUG_SAFE_BOX)
+#define BOARD_SAFE_INSET  8
+
+// QSPI to SH8601
+#define PIN_LCD_SDIO0  4
+#define PIN_LCD_SDIO1  5
+#define PIN_LCD_SDIO2  6
+#define PIN_LCD_SDIO3  7
+#define PIN_LCD_SCLK   11
+#define PIN_LCD_CS     12
+// LCD_RESET and TP_RESET are driven via TCA9554 expander (see EXIO_* below)
+
+// I2C bus (shared: TCA9554, AXP2101, FT3168, ES8311)
+#define PIN_I2C_SDA   15
+#define PIN_I2C_SCL   14
+
+// FT3168 touch interrupt — direct to ESP32
+#define PIN_TP_INT    21
+
+// I2S to ES8311 codec
+#define PIN_I2S_MCLK  16
+#define PIN_I2S_BCLK  9
+#define PIN_I2S_WS    45
+#define PIN_I2S_DI    10
+#define PIN_I2S_DO    8
+#define PIN_PA_CTRL   46
+
+// Buttons
+#define PIN_KEY1      0   // GPIO0 BOOT key, active-low
+
+// TCA9554 I2C GPIO expander pin assignments
+#define BOARD_HAS_TCA9554  1
+#define EXIO_LCD_RESET     0
+#define EXIO_TP_RESET      1
+#define EXIO_DSI_PWR_EN    2
+#define EXIO_AXP_IRQ       5
