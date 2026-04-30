@@ -98,3 +98,4 @@
 #define BOARD_KEY1_ACTIVE_HIGH     0
 #define BOARD_HAS_KEY2             0
 #define BOARD_AXP_ENABLE_AUX_LDOS  0
+#define BOARD_DISPLAY_PUSH_STREAMED  0   // letterbox path wins; streamed path never reached

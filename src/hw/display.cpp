@@ -176,10 +176,30 @@ void hwDisplayPush() {
   }
   s_gfx->draw16bitRGBBitmap(0, 0, s_frameBuf, LCD_W_PHYS, LCD_H_PHYS);
 #else
-#if BOARD_DISPLAY_SCALE == 1
+#if BOARD_DISPLAY_PUSH_STREAMED
+  // Streamed 2× upscale: one continuous QSPI transaction.
+  // CS stays asserted across all rows so the panel never sees bus idle
+  // (which causes per-row draws to fail on this 2.16 panel revision).
+  s_gfx->startWrite();
+  s_gfx->writeAddrWindow(BOARD_DISPLAY_OFFSET_X, BOARD_DISPLAY_OFFSET_Y,
+                         BOARD_HW_W * 2, BOARD_HW_H * 2);
+  for (int y = 0; y < HW_H; y++) {
+    uint16_t* row = src + y * HW_W;
+    for (int x = 0; x < HW_W; x++) {
+      uint16_t c = row[x];
+      s_lineBuf[x*2]     = c;
+      s_lineBuf[x*2 + 1] = c;
+    }
+    // Each canvas row writes twice for 2× vertical expansion.
+    // Width is HW_W*2 px = 368 px = 736 bytes.
+    s_gfx->writeBytes((uint8_t*)s_lineBuf, HW_W * 2 * 2);
+    s_gfx->writeBytes((uint8_t*)s_lineBuf, HW_W * 2 * 2);
+  }
+  s_gfx->endWrite();
+#elif BOARD_DISPLAY_SCALE == 1
   // Native one-shot blit. Used on QSPI panels that can't tolerate
   // many small draw calls per frame and where memory budget can't
-  // afford a full-frame upscaled buffer (2.16: no PSRAM).
+  // afford a full-frame upscaled buffer (no PSRAM).
   s_gfx->draw16bitRGBBitmap(BOARD_DISPLAY_OFFSET_X, BOARD_DISPLAY_OFFSET_Y,
                             src, BOARD_HW_W, BOARD_HW_H);
 #else

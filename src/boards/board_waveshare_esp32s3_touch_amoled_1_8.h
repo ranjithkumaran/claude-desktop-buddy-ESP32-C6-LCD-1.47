@@ -80,3 +80,4 @@
 
 #define BOARD_DISPLAY_SH8601_VENDOR_INIT  0
 #define BOARD_AXP_ENABLE_AUX_LDOS  0
+#define BOARD_DISPLAY_PUSH_STREAMED  0   // per-row 2× upscale works fine on S3 240 MHz

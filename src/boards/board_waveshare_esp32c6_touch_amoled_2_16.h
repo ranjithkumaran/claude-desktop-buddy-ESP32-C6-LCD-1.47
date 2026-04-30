@@ -2,17 +2,23 @@
 #pragma once
 
 // Display: SH8601 480×480 rounded-square AMOLED, 2.16" diagonal.
-// 184×224 canvas blitted natively (1× scale) centred at (148, 128) in the
-// 480×480 panel. No PSRAM → no full-frame upscale buffer; QSPI bus fails
-// with per-row chained writes, so one-shot native blit is the only path.
+// 184×224 canvas 2× upscaled → 368×448, centred at (56, 16) in the 480×480 panel.
+// The entire upscale is streamed in ONE continuous QSPI transaction (CS held
+// asserted across all rows) so the panel never sees bus idle between row draws
+// (which would cause the screen to go black on this panel revision).
 #define LCD_W_PHYS              480
 #define LCD_H_PHYS              480
 #define BOARD_HW_W              184
 #define BOARD_HW_H              224
 #define BOARD_SAFE_INSET        8
-#define BOARD_DISPLAY_OFFSET_X  148
-#define BOARD_DISPLAY_OFFSET_Y  128
-#define BOARD_DISPLAY_SCALE     1
+#define BOARD_DISPLAY_OFFSET_X  56
+#define BOARD_DISPLAY_OFFSET_Y  16
+#define BOARD_DISPLAY_SCALE     2
+// Streamed push: one continuous QSPI transaction instead of per-row draw calls.
+// Required on 2.16 because CS toggles between draw16bitRGBBitmap calls leave the
+// panel black. 1.8 (also SH8601/QSPI) doesn't need this — S3 at 240 MHz loops
+// fast enough that the panel never times out between calls.
+#define BOARD_DISPLAY_PUSH_STREAMED  1
 
 // QSPI to SH8601 (per XiaoZhi v2.2.5 board def + schematic verification)
 #define PIN_LCD_SDIO0  1
