@@ -82,3 +82,15 @@
 #define BOARD_MODEL_LINE2  "Touch AMOLED 1.75C"
 // AXP_IRQ is not wired to any ESP32 GPIO on the 1.75C; AXP PEK events
 // are detected by polling AXP registers via I2C every frame instead.
+
+// New flags introduced by 2.16 port. Defaults preserve current 1.75C behavior.
+#define BOARD_HAS_PSRAM            1
+#define BOARD_DISPLAY_OFFSET_X     0
+#define BOARD_DISPLAY_OFFSET_Y     0
+#define BOARD_HAS_PA_CTRL          1
+#define BOARD_HAS_AXP2101          1
+#define BOARD_LCD_RST_VIA_PMU      0
+#define BOARD_AXP_PWRON_4S_OFF     0
+#define BOARD_BTN_THIRD            0
+#define BOARD_KEY1_ACTIVE_HIGH     0
+#define BOARD_HAS_KEY2             0
