@@ -31,6 +31,12 @@ bool HwBtn::pressedFor(uint32_t ms) {
 
 bool hwInputInit() {
   pinMode(PIN_KEY1, INPUT_PULLUP);   // GPIO0 has external pullup; INPUT_PULLUP is harmless
+#if BOARD_HAS_KEY2
+  pinMode(PIN_KEY2, INPUT_PULLUP);   // External R18 10K already pulls high; INPUT_PULLUP is harmless
+#endif
+#if BOARD_BTN_THIRD
+  pinMode(PIN_KEY_BOOT, INPUT_PULLUP);   // External R8 10K already pulls high; INPUT_PULLUP is harmless
+#endif
 
 #if BOARD_TOUCH_CST92XX
   // CST92xx @ 0x5A via SensorLib. Reset is handled by hwExpanderResetSequence()
