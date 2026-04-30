@@ -48,3 +48,19 @@
 #define EXIO_TP_RESET      1
 #define EXIO_DSI_PWR_EN    2
 #define EXIO_AXP_IRQ       5
+
+// Display: Arduino_SH8601 — canvas is upscaled 2× to physical.
+#define BOARD_DISPLAY_CO5300     0
+#define BOARD_DISPLAY_LETTERBOX  0
+
+// Touch: FT3168 @ 0x38 via Arduino_DriveBus (Arduino_FT3x68)
+#define BOARD_TOUCH_CST92XX  0
+
+#define BOARD_BTN_SWAP_AB  0
+
+// External PCF85063 RTC @ 0x51 on the I2C bus
+#define BOARD_HAS_PCF85063  1
+
+// Credits-page hardware identification (two short lines).
+#define BOARD_MODEL_LINE1  "Waveshare ESP32-S3"
+#define BOARD_MODEL_LINE2  "Touch AMOLED 1.8"

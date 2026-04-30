@@ -7,51 +7,75 @@ maker devices over BLE, so developers and makers can build hardware that
 displays permission prompts, recent messages, and other interactions.
 
 This is a port of [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy)
-(originally targeting M5StickC Plus) to the
-**Waveshare ESP32-S3-Touch-AMOLED-1.8** board. The BLE wire protocol is
-unchanged — it pairs with the same Claude desktop apps and behaves like a
-larger-screen sibling of the M5StickC version.
+(originally targeting M5StickC Plus) to two Waveshare ESP32-S3 AMOLED
+boards. The BLE wire protocol is unchanged — same pairing, same desktop
+apps, just a larger screen.
 
 > **Building your own device?** You don't need any of the code here. See
 > **[REFERENCE.md](REFERENCE.md)** for the wire protocol: Nordic UART
 > Service UUIDs, JSON schemas, and the folder push transport.
 
-## Hardware
+## Supported boards
 
-[Waveshare ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.8)
-— ESP32-S3R8 (8 MB OPI PSRAM, 8 MB flash), 1.8" 368×448 AMOLED with QSPI
-SH8601 driver, FT3168 capacitive touch, AXP2101 PMU, QMI8658 IMU,
-PCF85063 RTC, ES8311 audio codec + speaker, two physical buttons.
+Both run the **same main.cpp / UI** — board-specific wiring, drivers and
+canvas→panel scaling are isolated in `src/hw/` + one header per board
+under `src/boards/`.
+
+| | [ESP32-S3-Touch-AMOLED-1.8](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.8) | [ESP32-S3-Touch-AMOLED-1.75C](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75C) |
+| --- | --- | --- |
+| MCU | ESP32-S3R8 (8 MB OPI PSRAM, 8 MB flash) | same |
+| Panel | 1.8" **rectangular** 368×448 AMOLED | 1.75" **round** 466×466 AMOLED |
+| Display driver | SH8601 (QSPI) | CO5300 (QSPI) |
+| Touch | FT3168 @ 0x38 | CST92xx @ 0x5A |
+| GPIO expander | TCA9554 (LCD/TP resets routed through it) | none — resets are direct GPIOs |
+| RTC | PCF85063 (I²C) | none — software clock synced from desktop |
+| IMU | QMI8658 | same |
+| PMU | AXP2101 | same |
+| Audio | ES8311 + amp + speaker | same |
+| Buttons | Key1 (GPIO0 BOOT) + AXP PEK | same (physical layout swapped; corrected in firmware) |
+| Canvas → panel | 184×224 canvas → **2× nearest-neighbor** → 368×448 | 184×224 canvas → **1.5× bilinear** → 276×336 centred in 466×466 (black border) |
+
+Internal canvas is **184×224** on both. The 1.75C rounds the content
+inside its circular bezel; keeping the logical canvas identical means
+UI code, fonts and all buddy rendering are completely board-agnostic.
 
 The firmware targets ESP32-S3 with Arduino framework 3.x via the
 [pioarduino](https://github.com/pioarduino/platform-espressif32) platform.
-All board-specific drivers are wrapped in a thin HAL layer at `src/hw/`,
-so adapting to a similar ESP32-S3 board mainly means changing
-`src/hw/pins.h` and re-checking the display init.
-
-Internal canvas is **184×224** (logical), 2× nearest-neighbor upscaled to
-the 368×448 panel each frame. This preserves the chunky-pixel look of the
-M5StickC original and keeps Canvas memory at ~80 KB (PSRAM). Rendering is
-~25 fps after the upscale.
 
 ## Flashing
 
 Install
 [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/),
-then:
+then pick the env that matches your board:
 
 ```bash
-pio run -e waveshare-amoled -t upload
+# 1.8"  rectangular AMOLED
+pio run -e waveshare-esp32s3-touch-amoled-1-8 -t upload
+
+# 1.75C round AMOLED
+pio run -e waveshare-esp32s3-touch-amoled-1-75c -t upload
 ```
 
 If you're starting from a previously-flashed device (e.g. the factory
 Xiaozhi firmware), wipe it first:
 
 ```bash
-pio run -e waveshare-amoled -t erase && pio run -e waveshare-amoled -t upload
+pio run -e <env> -t erase && pio run -e <env> -t upload
 ```
 
 LittleFS auto-formats on first boot if the partition isn't recognised.
+
+### Adding another board
+
+1. Add a new header at `src/boards/board_<name>.h` declaring all
+   `PIN_*`, `BOARD_HW_W/H`, `BOARD_SAFE_INSET`, and capability flags
+   (`BOARD_HAS_TCA9554`, `BOARD_DISPLAY_CO5300`, `BOARD_DISPLAY_LETTERBOX`,
+   `BOARD_TOUCH_CST92XX`, `BOARD_HAS_PCF85063`, `BOARD_BTN_SWAP_AB`).
+2. Add a `#elif defined(BOARD_<NAME>)` branch in `src/hw/pins.h`.
+3. Add a matching `[env:<name>]` block in `platformio.ini` with the
+   `-DBOARD_<NAME>` build flag.
+
+`main.cpp` and `buddies/` stay untouched.
 
 Once running you can also wipe everything from the device itself:
 **hold Key1 → settings → reset → factory reset → tap twice**.
@@ -86,7 +110,7 @@ long-press toggles screen off, very-long-press hardware-shuts-down.
 
 Touch is supplemental — keys remain primary:
 
-- **Swipe up / down** (Normal / Pet / Info) — cycle mode (same as Key1)
+- **Swipe up / down** — cycle through all 9 pages (Normal → Pet ×2 → Info ×6). Key1 short-press remains a coarser 3-mode jumper.
 - **Swipe left / right** (clock home screen) — cycle ASCII species
 - **Approval screen** — tap upper half = approve, lower half = deny
 - **Menu / Settings / Reset** — tap a row to select+confirm in one go
@@ -178,7 +202,7 @@ character and would rather skip the BLE round-trip,
 
 ```
 src/
-  main.cpp           — loop, state machine, UI screens
+  main.cpp           — loop, state machine, UI screens (board-agnostic)
   buddy.{cpp,h}      — ASCII species dispatch + render helpers
   buddies/           — one file per species, seven anim functions each
   character.{cpp,h}  — GIF decode + render
@@ -186,16 +210,21 @@ src/
   data.h             — wire protocol, JSON parse, CJK matrixifier
   xfer.h             — folder push receiver
   stats.h            — NVS-backed stats, settings, owner, species choice
+  boards/            — one .h per supported board (pins + capability flags)
   hw/                — board HAL (display, input, power, imu, rtc,
-                       audio, expander, border, pins)
+                       audio, expander, border). pins.h dispatches on
+                       the BOARD_* build flag
 lib/
   ES8311/            — vendored Espressif codec driver
-  Arduino_DriveBus/  — vendored FT3168 touch driver (Waveshare)
-  Adafruit_XCA9554/  — vendored TCA9554 expander driver
+  Arduino_DriveBus/  — vendored FT3168 touch driver (1.8)
+  Adafruit_XCA9554/  — vendored TCA9554 expander driver (1.8)
 characters/          — example GIF character packs
 tools/               — generators and converters
-docs/superpowers/    — design spec + implementation plan from the port
+docs/superpowers/    — design specs + implementation plans
 ```
+
+CST92xx touch (1.75C) and PCF85063 RTC (1.8) come in through
+`SensorLib` via `platformio.ini` lib_deps rather than being vendored.
 
 ## Availability
 
