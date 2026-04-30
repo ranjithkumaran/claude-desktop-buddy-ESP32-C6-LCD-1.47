@@ -76,3 +76,5 @@
 // Credits-page hardware identification (two short lines).
 #define BOARD_MODEL_LINE1  "Waveshare ESP32-S3"
 #define BOARD_MODEL_LINE2  "Touch AMOLED 1.8"
+
+#define BOARD_DISPLAY_SH8601_VENDOR_INIT  0

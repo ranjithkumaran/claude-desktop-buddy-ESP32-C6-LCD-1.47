@@ -80,6 +80,8 @@
 // Credits-page hardware identification (two short lines).
 #define BOARD_MODEL_LINE1  "Waveshare ESP32-S3"
 #define BOARD_MODEL_LINE2  "Touch AMOLED 1.75C"
+
+#define BOARD_DISPLAY_SH8601_VENDOR_INIT  0
 // AXP_IRQ is not wired to any ESP32 GPIO on the 1.75C; AXP PEK events
 // are detected by polling AXP registers via I2C every frame instead.
 

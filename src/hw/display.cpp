@@ -30,6 +30,26 @@ bool hwDisplayInit() {
   // canvas->begin() internally calls gfx->begin() which calls bus init.
   // Calling them separately would double-init the SPI bus → ESP_ERR_INVALID_STATE.
   if (!s_canvas->begin()) { Serial.println("hwDisplay: canvas begin failed"); return false; }
+#if BOARD_DISPLAY_SH8601_VENDOR_INIT
+  // The 2.16 panel revision needs extra vendor init beyond what
+  // Arduino_SH8601's tftInit sends. Page-select dance + gamma /
+  // brightness register configuration. Sequence from the LVGL v8
+  // demo at .../02_Example/Arduino-v3.3.3/08_LVGL_V8_Test/bsp_lvgl_port.cpp.
+  s_bus->beginWrite();
+  s_bus->writeC8D8(0xFE, 0x20);  // page select MFR
+  s_bus->writeC8D8(0x19, 0x10);
+  s_bus->writeC8D8(0x1C, 0xA0);
+  s_bus->writeC8D8(0xFE, 0x00);  // back to USER page
+  s_bus->writeC8D8(0xC4, 0x80);
+  s_bus->writeC8D8(0x3A, 0x55);  // pixel format (16bpp with control flags)
+  s_bus->writeC8D8(0x35, 0x00);  // tearing line
+  s_bus->writeC8D8(0x36, 0x30);  // MADCTL
+  s_bus->writeC8D8(0x53, 0x20);  // CABC / dimming control
+  s_bus->writeC8D8(0x51, 0xFF);  // brightness max
+  s_bus->writeC8D8(0x63, 0xFF);
+  s_bus->endWrite();
+  delay(10);
+#endif
   // UTF-8 decode for u8g2 CJK fonts — without this, print() treats each
   // byte of a multi-byte codepoint as its own glyph lookup → mojibake.
   s_canvas->setUTF8Print(true);
