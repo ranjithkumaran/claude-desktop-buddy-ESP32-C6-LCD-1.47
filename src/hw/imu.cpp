@@ -10,7 +10,12 @@ bool hwImuInit() {
     Serial.println("hwImu: QMI8658 begin failed");
     return false;
   }
-  s_qmi.configAccelerometer(SensorQMI8658::ACC_RANGE_2G,
+  Serial.printf("hwImu: WHO_AM_I=0x%02X chipID=0x%02X\n",
+                s_qmi.whoAmI(), s_qmi.getChipID());
+  // Reset to clean default state — without this on the 2.16, the chip
+  // returned saturated X/Y axis readings (stuck at +2g/+2g).
+  s_qmi.reset();
+  s_qmi.configAccelerometer(SensorQMI8658::ACC_RANGE_4G,
                             SensorQMI8658::ACC_ODR_125Hz);
   s_qmi.enableAccelerometer();
   return true;
