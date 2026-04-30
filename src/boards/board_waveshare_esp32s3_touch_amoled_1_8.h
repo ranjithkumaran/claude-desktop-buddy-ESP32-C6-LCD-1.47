@@ -81,3 +81,6 @@
 #define BOARD_DISPLAY_SH8601_VENDOR_INIT  0
 #define BOARD_AXP_ENABLE_AUX_LDOS  0
 #define BOARD_DISPLAY_PUSH_STREAMED  0   // per-row 2× upscale works fine on S3 240 MHz
+#define BOARD_CO5300_COL_OFFSET    0   // 1.8 doesn't use CO5300; value irrelevant but defined for build
+#define BOARD_DISPLAY_ROTATION     0
+#define BOARD_CO5300_MADCTL        0   // 0 = use lib's setRotation MADCTL unchanged

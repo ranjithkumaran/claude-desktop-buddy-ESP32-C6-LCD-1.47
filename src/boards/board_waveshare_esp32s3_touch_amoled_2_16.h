@@ -1,15 +1,19 @@
 // src/boards/board_waveshare_esp32s3_touch_amoled_2_16.h
 #pragma once
 
-// Display: 466×466 round AMOLED (CO5300), same as 1.75c. PSRAM-backed
-// bilinear letterbox (184×224 → 276×336 centred in the 466 frame).
-#define LCD_W_PHYS  466
-#define LCD_H_PHYS  466
+// Display: 480×480 rounded-square AMOLED (CO5300). CO5300 panels can't
+// tolerate per-row blits (QSPI state issue), so the LETTERBOX path is
+// reused: PSRAM-backed full-frame buffer + one-shot draw16bitRGBBitmap.
+// 184×224 canvas → DEST 368×448 (exact 2× scale, bilinear == nearest)
+// centred via (LCD-DEST)/2 → (56, 16) on 480×480.
+#define LCD_W_PHYS  480
+#define LCD_H_PHYS  480
 
 #define BOARD_HW_W        184
 #define BOARD_HW_H        224
-// Round panel with rounded-square bezel — same SAFE_INSET as 1.75c.
-#define BOARD_SAFE_INSET  35
+// Rounded corners fall in the 56 px L/R black border; canvas content is
+// fully inside the visible rectangle. Same SAFE_INSET as 1.8.
+#define BOARD_SAFE_INSET  8
 
 // QSPI to CO5300 (LCD_RESET / TP_RESET pins differ from 1.75c)
 #define PIN_LCD_SDIO0  4
@@ -51,13 +55,19 @@
 #define BOARD_AXP_PWRON_4S_OFF     1   // PWR key powers off via AXP after 4 s hold
 #define BOARD_AXP_ENABLE_AUX_LDOS  0   // DSI_PWR_EN is on VCC3V3 (R17 pull-up), not ALDO2
 #define BOARD_DISPLAY_CO5300       1
-#define BOARD_DISPLAY_LETTERBOX    1
-#define BOARD_DISPLAY_DEST_W       276
-#define BOARD_DISPLAY_DEST_H       336
+#define BOARD_CO5300_COL_OFFSET    0   // 480×480 panel uses full window; 1.75c sets 6 (round panel)
+#define BOARD_DISPLAY_ROTATION     0
+// MADCTL override: Arduino_CO5300's setRotation only does X/Y mirror, not
+// row/column swap (MV bit). Setting this to non-zero writes 0x36 directly
+// after canvas->begin(). 0x60 = MV+MX (90° CW); 0xA0 = MV+MY (90° CCW); 0 = no override.
+#define BOARD_CO5300_MADCTL        0xA0   // MV+MY (90° CCW; opposite rotation of 0x60 / MV+MX)
+#define BOARD_DISPLAY_LETTERBOX    1   // CO5300 needs one-shot blit; S3 has PSRAM for full frame buf
+#define BOARD_DISPLAY_DEST_W       368   // 184 × 2 (exact integer upscale; bilinear == nearest at 2×)
+#define BOARD_DISPLAY_DEST_H       448   // 224 × 2
 #define BOARD_DISPLAY_SH8601_VENDOR_INIT  0
-#define BOARD_DISPLAY_OFFSET_X     0   // letterbox path uses its own centring math
+#define BOARD_DISPLAY_OFFSET_X     0   // letterbox path uses its own (LCD-DEST)/2 centring math
 #define BOARD_DISPLAY_OFFSET_Y     0
-#define BOARD_DISPLAY_SCALE        1   // letterbox path uses its own scale; touch falls back to /1
+#define BOARD_DISPLAY_SCALE        1   // letterbox path uses DEST_W/H math; touch falls back to /1
 #define BOARD_DISPLAY_PUSH_STREAMED 0
 #define BOARD_TOUCH_CST92XX        1
 #define BOARD_BTN_SWAP_AB          0   // scanning lands keys in correct slots; no swap

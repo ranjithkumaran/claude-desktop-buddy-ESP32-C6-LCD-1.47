@@ -53,11 +53,11 @@ bool hwDisplayInit() {
     PIN_LCD_SDIO2, PIN_LCD_SDIO3);
 #if BOARD_DISPLAY_CO5300
   // CO5300 ctor: (bus, rst, rotation, w, h, col_off1, row_off1, col_off2, row_off2)
-  // col_offset1=6 per Waveshare demo (round panel RAM window offset).
+  // col_offset1 = 6 on round 466×466 (1.75c), 0 on rounded-square 480×480 (S3-2.16).
   // Pass PIN_LCD_RESET so the driver does its own 200 ms hardware reset —
   // the 20 ms pulse from hwExpanderResetSequence() is too short for CO5300.
-  s_gfx = new Arduino_CO5300(s_bus, PIN_LCD_RESET, 0,
-                             LCD_W_PHYS, LCD_H_PHYS, 6, 0, 0, 0);
+  s_gfx = new Arduino_CO5300(s_bus, PIN_LCD_RESET, BOARD_DISPLAY_ROTATION,
+                             LCD_W_PHYS, LCD_H_PHYS, BOARD_CO5300_COL_OFFSET, 0, 0, 0);
 #else
   s_gfx = new Arduino_SH8601(s_bus, GFX_NOT_DEFINED, 0, LCD_W_PHYS, LCD_H_PHYS);
 #endif
@@ -68,6 +68,14 @@ bool hwDisplayInit() {
   // UTF-8 decode for u8g2 CJK fonts — without this, print() treats each
   // byte of a multi-byte codepoint as its own glyph lookup → mojibake.
   s_canvas->setUTF8Print(true);
+#if BOARD_DISPLAY_CO5300 && (BOARD_CO5300_MADCTL != 0)
+  // CO5300 panels where the natural orientation needs row/column swap
+  // (MADCTL bit MV=0x20) — Arduino_CO5300's setRotation only does X/Y
+  // mirror, so write MADCTL directly here. 0x60 = MV+MX (90° CW), 0xA0 = MV+MY (90° CCW).
+  s_bus->beginWrite();
+  s_bus->writeC8D8(0x36, BOARD_CO5300_MADCTL);
+  s_bus->endWrite();
+#endif
 #if BOARD_DISPLAY_SH8601_VENDOR_INIT
   sh8601_vendor_init(s_bus);
   // The vendor init ends with brightness max (0x51 0xFF) and DISPON.

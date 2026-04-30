@@ -76,3 +76,6 @@
 
 #define BOARD_DISPLAY_SH8601_VENDOR_INIT  1
 #define BOARD_AXP_ENABLE_AUX_LDOS  1
+#define BOARD_CO5300_COL_OFFSET    0   // C6-2.16 uses SH8601, not CO5300; value irrelevant
+#define BOARD_DISPLAY_ROTATION     0
+#define BOARD_CO5300_MADCTL        0   // 0 = use lib's setRotation MADCTL unchanged

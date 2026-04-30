@@ -99,3 +99,6 @@
 #define BOARD_HAS_KEY2             0
 #define BOARD_AXP_ENABLE_AUX_LDOS  0
 #define BOARD_DISPLAY_PUSH_STREAMED  0   // letterbox path wins; streamed path never reached
+#define BOARD_CO5300_COL_OFFSET    6   // round panel RAM window starts at column 6
+#define BOARD_DISPLAY_ROTATION     0
+#define BOARD_CO5300_MADCTL        0   // 0 = use lib's setRotation MADCTL unchanged
