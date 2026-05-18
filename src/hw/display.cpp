@@ -3,7 +3,9 @@
 #include <Arduino.h>
 
 static Arduino_DataBus*  s_bus    = nullptr;
-#if BOARD_DISPLAY_CO5300
+#if BOARD_DISPLAY_ST7789
+static Arduino_ST7789*   s_gfx    = nullptr;
+#elif BOARD_DISPLAY_CO5300
 static Arduino_CO5300*   s_gfx    = nullptr;
 #else
 static Arduino_SH8601*   s_gfx    = nullptr;
@@ -11,6 +13,13 @@ static Arduino_SH8601*   s_gfx    = nullptr;
 static Arduino_Canvas*   s_canvas = nullptr;
 
 static const uint8_t BRIGHT_LUT[5] = { 50, 100, 150, 200, 255 };
+
+#if BOARD_DISPLAY_HAS_BL_PWM
+// LEDC backlight PWM. Arduino-ESP32 3.x assigns the channel implicitly;
+// we just attach the pin and call ledcWrite on the same pin afterwards.
+static constexpr int BL_LEDC_FREQ = 5000;
+static constexpr int BL_LEDC_RES  = 8;
+#endif
 
 #if BOARD_DISPLAY_SH8601_VENDOR_INIT
 // LVGL demo SH8601 init for the 2.16 panel revision.
@@ -48,6 +57,32 @@ static void sh8601_vendor_init(Arduino_DataBus* bus) {
 #endif
 
 bool hwDisplayInit() {
+#if BOARD_DISPLAY_ST7789
+  // 4-wire SPI ST7789. MISO not wired (LCD is write-only on this board).
+  s_bus = new Arduino_ESP32SPI(PIN_LCD_DC, PIN_LCD_CS, PIN_LCD_SCLK,
+                               PIN_LCD_MOSI, GFX_NOT_DEFINED);
+  s_gfx = new Arduino_ST7789(s_bus, PIN_LCD_RESET, BOARD_DISPLAY_ROTATION,
+                             BOARD_ST7789_IPS, LCD_W_PHYS, LCD_H_PHYS,
+                             BOARD_ST7789_COL_OFFSET, BOARD_ST7789_ROW_OFFSET,
+                             BOARD_ST7789_COL_OFFSET, BOARD_ST7789_ROW_OFFSET);
+  s_canvas = new Arduino_Canvas(HW_W, HW_H, s_gfx);
+  if (!s_canvas->begin()) { Serial.println("hwDisplay: canvas begin failed"); return false; }
+  s_canvas->setUTF8Print(true);
+  // Black-fill the full panel once so the letterbox bars stay black on
+  // every subsequent push (which only blits the centred HW_W×HW_H rect).
+  s_gfx->fillScreen(0x0000);
+  // Backlight: prefer LEDC PWM for brightness control; fall back to GPIO HIGH.
+  #if BOARD_DISPLAY_HAS_BL_PWM
+    // Arduino-ESP32 3.x: ledcAttach binds pin + freq + resolution in one call;
+    // ledcWrite is keyed by pin number, not channel.
+    ledcAttach(PIN_LCD_BL, BL_LEDC_FREQ, BL_LEDC_RES);
+    ledcWrite(PIN_LCD_BL, BRIGHT_LUT[2]);
+  #else
+    pinMode(PIN_LCD_BL, OUTPUT);
+    digitalWrite(PIN_LCD_BL, HIGH);
+  #endif
+  return true;
+#else
   s_bus = new Arduino_ESP32QSPI(
     PIN_LCD_CS, PIN_LCD_SCLK, PIN_LCD_SDIO0, PIN_LCD_SDIO1,
     PIN_LCD_SDIO2, PIN_LCD_SDIO3);
@@ -88,18 +123,27 @@ bool hwDisplayInit() {
   s_gfx->setBrightness(150);  // default mid-brightness; main may override later
 #endif
   return true;
+#endif // BOARD_DISPLAY_ST7789
 }
 
 Arduino_Canvas* hwCanvas() { return s_canvas; }
 
 void hwDisplayBrightness(uint8_t lvl) {
   if (lvl > 4) lvl = 4;
+#if BOARD_DISPLAY_HAS_BL_PWM
+  ledcWrite(PIN_LCD_BL, BRIGHT_LUT[lvl]);
+#else
   s_gfx->setBrightness(BRIGHT_LUT[lvl]);
+#endif
 }
 
 void hwDisplaySleep(bool off) {
   if (off) {
+#if BOARD_DISPLAY_HAS_BL_PWM
+    ledcWrite(PIN_LCD_BL, 0);
+#else
     s_gfx->setBrightness(0);
+#endif
     s_gfx->displayOff();
   } else {
     s_gfx->displayOn();
@@ -235,7 +279,9 @@ void hwDisplayPush() {
   // panel. Inset well below the rounded bezel corners. Less intrusive
   // than a full frame; reads as a "notification dot".
   if (s_borderAlertOn) {
-    const int BAR_W = 200;
+    // Cap pill width to the panel so narrow LCDs (e.g. 172 px ST7789) don't
+    // get a negative X. AMOLED boards keep the original ~200 px pill.
+    const int BAR_W = (LCD_W_PHYS > 220) ? 200 : (LCD_W_PHYS - 16);
     const int BAR_H = 8;
     const int BAR_Y = 18;
     const int BAR_X = (LCD_W_PHYS - BAR_W) / 2;

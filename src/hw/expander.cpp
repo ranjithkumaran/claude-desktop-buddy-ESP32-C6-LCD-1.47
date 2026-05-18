@@ -38,7 +38,9 @@ bool hwExpanderInit() {
 #if !BOARD_LCD_RST_VIA_PMU
   pinMode(PIN_LCD_RESET, OUTPUT);
 #endif
+#if BOARD_HAS_TOUCH
   pinMode(PIN_TP_RESET, OUTPUT);
+#endif
   return true;
 }
 
@@ -46,12 +48,16 @@ void hwExpanderResetSequence() {
 #if !BOARD_LCD_RST_VIA_PMU
   digitalWrite(PIN_LCD_RESET, LOW);
 #endif
+#if BOARD_HAS_TOUCH
   digitalWrite(PIN_TP_RESET, LOW);
+#endif
   delay(20);
 #if !BOARD_LCD_RST_VIA_PMU
   digitalWrite(PIN_LCD_RESET, HIGH);
 #endif
+#if BOARD_HAS_TOUCH
   digitalWrite(PIN_TP_RESET, HIGH);
+#endif
   delay(20);
 }
 

@@ -39,6 +39,20 @@ static void startBt() {
 #include "stats.h"
 const int W = HW_W;
 const int H = HW_H;
+
+// Narrow-canvas boards (1.47" LCD) use the chill7 u8g2 font as the default
+// everywhere — same font that drawHud's "No Claude connected" line uses, which
+// reads cleanly on the small 172×320 panel where the default Adafruit GFX
+// 6×8 font (rendered ~16 px tall after 2× upscale) is too chunky. Wider
+// AMOLED boards keep the Adafruit default. Replace bare setFont(NULL) calls
+// with this helper so the global font choice survives every draw pass.
+static inline void setDefaultFont() {
+#if BOARD_HW_W < 120
+  spr.setFont((const uint8_t*)u8g2_font_chill7_h_cjk);
+#else
+  spr.setFont((const GFXfont*)NULL);
+#endif
+}
 const int CX = W / 2;
 const int CY_BASE = 120;
 // LED replaced by AMOLED border-flash via hwBorderAlert() — no GPIO LED.
@@ -61,7 +75,14 @@ unsigned long t = 0;
 // Menu
 bool    menuOpen    = false;
 uint8_t menuSel     = 0;
-uint8_t brightLevel = 4;           // 0..4 → ScreenBreath 20..100
+// 0..4 → ScreenBreath 20..100. Default to brightest on AMOLED boards, dimmest
+// on the 1.47" LCD — its backlight + LDO run noticeably hot at full PWM and the
+// panel is already overbright in a normal indoor setting at level 0.
+#if BOARD_HW_W < 120
+uint8_t brightLevel = 0;
+#else
+uint8_t brightLevel = 4;
+#endif
 bool    btnALong    = false;
 
 enum DisplayMode { DISP_NORMAL, DISP_PET, DISP_INFO, DISP_COUNT };
@@ -342,7 +363,13 @@ static void drawMenuHints(const Palette& p, int mx, int mw, int hy,
 
 static void drawSettings() {
   const Palette& p = characterPalette();
-  int mw = 118, mh = 16 + SETTINGS_N * 14 + MENU_HINT_H;
+  // Narrow boards: panel must fit inside HW_W (86 on 1.47" LCD) or it extends
+  // off-canvas to the left, clipping the leading "> S" of each row. Row step
+  // also tightens 14→12 so 10 settings rows + header + hints fit inside the
+  // 160-tall canvas (would otherwise clip top/bottom).
+  const int STEP = (W < 120) ? 12 : 14;
+  int mw = (W < 120) ? W - 6 : 118;
+  int mh = 16 + SETTINGS_N * STEP + MENU_HINT_H;
   int mx = (W - mw) / 2, my = (H - mh) / 2;
   spr.fillRoundRect(mx, my, mw, mh, 4, PANEL);
   spr.drawRoundRect(mx, my, mw, mh, 4, p.textDim);
@@ -352,10 +379,10 @@ static void drawSettings() {
   for (int i = 0; i < SETTINGS_N; i++) {
     bool sel = (i == settingsSel);
     spr.setTextColor(sel ? p.text : p.textDim, PANEL);
-    spr.setCursor(mx + 6, my + 8 + i * 14);
+    spr.setCursor(mx + 6, my + 8 + i * STEP);
     spr.print(sel ? "> " : "  ");
     spr.print(settingsItems[i]);
-    spr.setCursor(mx + mw - 36, my + 8 + i * 14);
+    spr.setCursor(mx + mw - 36, my + 8 + i * STEP);
     spr.setTextColor(p.textDim, PANEL);
     if (i == 0) {
       spr.printf("%u/4", brightLevel);
@@ -376,7 +403,9 @@ static void drawSettings() {
 
 static void drawReset() {
   const Palette& p = characterPalette();
-  int mw = 118, mh = 16 + RESET_N * 14 + MENU_HINT_H;
+  const int STEP = (W < 120) ? 12 : 14;
+  int mw = (W < 120) ? W - 6 : 118;
+  int mh = 16 + RESET_N * STEP + MENU_HINT_H;
   int mx = (W - mw) / 2, my = (H - mh) / 2;
   spr.fillRoundRect(mx, my, mw, mh, 4, PANEL);
   spr.drawRoundRect(mx, my, mw, mh, 4, HOT);
@@ -384,7 +413,7 @@ static void drawReset() {
   for (int i = 0; i < RESET_N; i++) {
     bool sel = (i == resetSel);
     spr.setTextColor(sel ? p.text : p.textDim, PANEL);
-    spr.setCursor(mx + 6, my + 8 + i * 14);
+    spr.setCursor(mx + 6, my + 8 + i * STEP);
     spr.print(sel ? "> " : "  ");
     bool armed = (i == resetConfirmIdx) &&
                  (int32_t)(millis() - resetConfirmUntil) < 0;
@@ -413,7 +442,9 @@ void menuConfirm() {
 
 void drawMenu() {
   const Palette& p = characterPalette();
-  int mw = 118, mh = 16 + MENU_N * 14 + MENU_HINT_H;
+  const int STEP = (W < 120) ? 12 : 14;
+  int mw = (W < 120) ? W - 6 : 118;
+  int mh = 16 + MENU_N * STEP + MENU_HINT_H;
   int mx = (W - mw) / 2, my = (H - mh) / 2;
   spr.fillRoundRect(mx, my, mw, mh, 4, PANEL);
   spr.drawRoundRect(mx, my, mw, mh, 4, p.textDim);
@@ -421,7 +452,7 @@ void drawMenu() {
   for (int i = 0; i < MENU_N; i++) {
     bool sel = (i == menuSel);
     spr.setTextColor(sel ? p.text : p.textDim, PANEL);
-    spr.setCursor(mx + 6, my + 8 + i * 14);
+    spr.setCursor(mx + 6, my + 8 + i * STEP);
     spr.print(sel ? "> " : "  ");
     spr.print(menuItems[i]);
     if (i == 4) spr.print(dataDemo() ? "  on" : "  off");
@@ -449,15 +480,23 @@ static const char* const MON[] = {
 static const char* const DOW[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 
 static uint8_t clockDow() { return _clkTm.dow % 7; }
-// Manual centered-text helper (Arduino_GFX has no setTextDatum). Default
-// font is 6 px wide × 8 px tall; multiply by textSize for placement.
+// Manual centered-text helper (Arduino_GFX has no setTextDatum). Uses
+// getTextBounds so the centering math is correct regardless of which font
+// is active — important on narrow boards where chill7 is the global default
+// and the old strlen()*6 width formula (assuming the Adafruit 6×8 font) is
+// wrong. With chill7's narrower proportional glyphs, strings that overran
+// an 86-px canvas (e.g. "a buddy appears" = 90 px at 6/char) now fit.
 static void drawCenteredText(const char* s, int cx, int cy, int sz, uint16_t fg, uint16_t bg) {
-  int w = (int)strlen(s) * 6 * sz;
-  int h = 8 * sz;
   spr.setTextSize(sz);
   spr.setTextColor(fg, bg);
-  spr.setCursor(cx - w/2, cy - h/2);
+  int16_t bx, by; uint16_t bw, bh;
+  spr.getTextBounds(s, 0, 0, &bx, &by, &bw, &bh);
+  // getTextBounds returns (bx, by) as the offset from the cursor to the top-
+  // left of the rendered glyph cluster, so subtract those to land the cluster
+  // centred on (cx, cy).
+  spr.setCursor(cx - bw/2 - bx, cy - bh/2 - by);
   spr.print(s);
+  spr.setTextSize(1);
 }
 static void drawClock() {
   const Palette& p = characterPalette();
@@ -469,9 +508,20 @@ static void drawClock() {
   // y >= 140 so the buddy at full home scale (reaches y≈126) fits
   // entirely above. Wider canvas + portrait orientation has plenty of
   // horizontal room for HH:MM:SS at size 3 (8 chars × 18 = 144 px).
+#if BOARD_HW_W < 120
+  // Narrow canvas (86×160): the buddy GIF sits at y≈45–94. The original
+  // y=160 / SAFE_B-21 layout puts HH:MM:SS off the bottom and lets the date
+  // overdraw uncleared space above the fill rect. Re-position both centres
+  // safely inside the 160 px canvas and clear the whole region below the
+  // buddy so stale pixels don't bleed through.
+  spr.fillRect(0, 100, W, H - 100, p.bg);
+  drawCenteredText(hms, CX, 118, 1, p.text,    p.bg);
+  drawCenteredText(dl,  CX, 140, 1, p.textDim, p.bg);
+#else
   spr.fillRect(0, 140, W, H - 140, p.bg);
   drawCenteredText(hms, CX, 160, 3, p.text,    p.bg);
   drawCenteredText(dl,  CX, SAFE_B - 21, 1, p.textDim, p.bg);
+#endif
   spr.setTextSize(1);
 }
 
@@ -503,14 +553,28 @@ bool checkShake() {
 // Persistent screen-level title row ("INFO  n/3") matching the PET header,
 // then a per-page section label below it. The fixed title is the cue that
 // B cycles pages here just like it does on PET.
+//
+// On narrow boards drawInfo() scrolls the body by passing a pre-decremented
+// y; the header is part of the same scrolled flow, so it has to honour the
+// same "below TOP only" clip as drawInfo's ln() — otherwise the title row
+// would scroll up into the pig area as the page advances.
 static void _infoHeader(const Palette& p, int& y, const char* section, uint8_t page) {
-  spr.setTextColor(p.text, p.bg);
-  spr.setCursor(SAFE_L, y); spr.print("Info");
-  spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(SAFE_R - 24, y); spr.printf("%u/%u", page + 1, INFO_PAGES);
+#if BOARD_HW_W < 120
+  const int INFO_CLIP_TOP = 70 + 7;   // mirrors drawInfo's TOP + chill7 ascent
+#else
+  const int INFO_CLIP_TOP = -1000000;   // effectively no clip
+#endif
+  if (y >= INFO_CLIP_TOP) {
+    spr.setTextColor(p.text, p.bg);
+    spr.setCursor(SAFE_L, y); spr.print("Info");
+    spr.setTextColor(p.textDim, p.bg);
+    spr.setCursor(SAFE_R - 24, y); spr.printf("%u/%u", page + 1, INFO_PAGES);
+  }
   y += 12;
-  spr.setTextColor(p.body, p.bg);
-  spr.setCursor(SAFE_L, y); spr.print(section);
+  if (y >= INFO_CLIP_TOP) {
+    spr.setTextColor(p.body, p.bg);
+    spr.setCursor(SAFE_L, y); spr.print(section);
+  }
   y += 12;
 }
 
@@ -518,14 +582,27 @@ void drawPasskey() {
   const Palette& p = characterPalette();
   spr.fillScreen(p.bg);
   spr.setTextSize(1);
+  char b[8]; snprintf(b, sizeof(b), "%06lu", (unsigned long)blePasskey());
+#if BOARD_HW_W < 120
+  // Narrow canvas (86 px): 6 digits at default-font size 3 = 108 px wide;
+  // the leading digit clipped off the left. Drop to size 2 (72 px) and
+  // route labels through drawCenteredText so chill7 widths land centered.
+  drawCenteredText("BLUETOOTH PAIRING", W/2, 24,    1, p.textDim, p.bg);
+  drawCenteredText("enter on desktop:",  W/2, H - 30, 1, p.textDim, p.bg);
+  // Default Adafruit font for the digits so setTextSize(2) actually scales
+  // them; chill7 ignores textSize, which would have kept the digits tiny.
+  spr.setFont((const GFXfont*)NULL);
+  drawCenteredText(b, W/2, H/2, 2, p.text, p.bg);
+  setDefaultFont();
+#else
   spr.setTextColor(p.textDim, p.bg);
   spr.setCursor(SAFE_L, 56);  spr.print("BLUETOOTH PAIRING");
   spr.setCursor(SAFE_L, SAFE_B - 32); spr.print("enter on desktop:");
   spr.setTextSize(3);
   spr.setTextColor(p.text, p.bg);
-  char b[8]; snprintf(b, sizeof(b), "%06lu", (unsigned long)blePasskey());
   spr.setCursor((W - 18 * 6) / 2, 110);
   spr.print(b);
+#endif
 }
 
 void drawInfo() {
@@ -533,10 +610,40 @@ void drawInfo() {
   const int TOP = 70;
   spr.fillRect(0, TOP, W, H - TOP, p.bg);
   spr.setTextSize(1);
-  int y = TOP + 2;
+
+  // Auto-scroll: needed on narrow canvases where info pages run longer than
+  // the visible window (90 px on the 1.47" LCD). Hold at the top for ~1.5 s,
+  // scroll down at ~17 px/s, hold at the bottom ~1.5 s, restart. On wider
+  // canvases the offset stays at 0 because content fits.
+  static int     s_infoMaxY[INFO_PAGES] = {0};
+  static uint8_t s_infoLastPage         = 0xFF;
+  static uint32_t s_infoScrollT0        = 0;
+  if (infoPage != s_infoLastPage) {
+    s_infoScrollT0 = millis();
+    s_infoLastPage = infoPage;
+  }
+  const int viewH      = H - TOP;
+  const int contentH   = s_infoMaxY[infoPage];
+  const int DWELL_PX   = 24;     // ~1.4 s at 60 ms/px
+  int scroll = 0;
+  if (contentH > viewH) {
+    int overflow = contentH - viewH + 8;
+    int cycle    = overflow + DWELL_PX * 2;
+    int t        = (int)((millis() - s_infoScrollT0) / 60) % cycle;
+    if (t < DWELL_PX)                   scroll = 0;
+    else if (t > DWELL_PX + overflow)   scroll = overflow;
+    else                                scroll = t - DWELL_PX;
+  }
+  // Start one chill7 line height below TOP so the first frame's header sits
+  // fully inside the scroll region (baseline at TOP+8 → glyph spans TOP+1..
+  // TOP+8, no overlap with the pig area). The strict y ≥ TOP+7 clip below
+  // matches _infoHeader's INFO_CLIP_TOP so headers and body share the same
+  // "fully below pig" rule as the page scrolls.
+  int y = TOP + 8 - scroll;
   auto ln = [&](const char* fmt, ...) {
     char b[32]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof(b), fmt, a); va_end(a);
-    spr.setCursor(SAFE_L, y); spr.print(b); y += 8;
+    if (y >= TOP + 7 && y < H) { spr.setCursor(SAFE_L, y); spr.print(b); }
+    y += 8;
   };
 
   if (infoPage == 0) {
@@ -592,6 +699,7 @@ void drawInfo() {
   } else if (infoPage == 3) {
     _infoHeader(p, y, "DEVICE", infoPage);
 
+#if BOARD_HAS_AXP2101
     HwBattery hb = hwBattery();
     int vBat_mV  = hb.mV;
     int iBat_mA  = hb.mA;       // always 0 on AXP2101 (current not exposed)
@@ -616,6 +724,13 @@ void drawInfo() {
     ln("  current  %+dmA", iBat_mA);
     if (usb) ln("  usb in   %d.%02dV", vBus_mV/1000, (vBus_mV%1000)/10);
     y += 8;
+#else
+    // No PMU on this board (e.g. 1.47" LCD). Skip the battery readouts —
+    // hwBattery() returns all zeros, so "0%" and "0.00V" would be misleading.
+    spr.setTextColor(p.textDim, p.bg);
+    ln("  power    USB");
+    y += 8;
+#endif
 
     spr.setTextColor(p.text, p.bg);
     ln("SYSTEM");
@@ -626,7 +741,9 @@ void drawInfo() {
     ln("  heap     %uKB", ESP.getFreeHeap() / 1024);
     ln("  bright   %u/4", brightLevel);
     ln("  bt       %s", settings().bt ? (dataBtActive() ? "linked" : "on") : "off");
+#if BOARD_HAS_AXP2101
     ln("  temp     %dC", (int)hwBattery().tempC);
+#endif
 
   } else if (infoPage == 4) {
     _infoHeader(p, y, "BLUETOOTH", infoPage);
@@ -680,6 +797,10 @@ void drawInfo() {
     ln(BOARD_MODEL_LINE1);
     ln(BOARD_MODEL_LINE2);
   }
+  // Record total content height so the next frame can decide whether scroll
+  // is needed (and how far). y is currently the cursor after the last line,
+  // expressed in scrolled-canvas coords; add scroll back to recover absolute.
+  s_infoMaxY[infoPage] = (y + scroll) - TOP;
 }
 
 
@@ -785,58 +906,92 @@ static void tinyHeart(int x, int y, bool filled, uint16_t col) {
 }
 
 static void drawPetStats(const Palette& p) {
-  const int TOP = 70;
+  // Narrow-canvas layout (1.47" LCD): TOP is pushed up + line steps tightened
+  // so the full 9-element stats column (mood / fed / energy / level / approved /
+  // denied / napped / tokens / today) fits in the 160-tall canvas instead of
+  // running off the bottom. AMOLED boards (HW_W ≥ 120) keep TOP=70 + step=20.
+  //
+  // TY = baseline-vs-top-left offset for the active text font: u8g2 fonts
+  // (chill7 on narrow) anchor by glyph baseline, Adafruit GFX default font
+  // anchors by top-left. Adding TY to text setCursor y values keeps the same
+  // visual position regardless of which font is active.
+#if BOARD_HW_W >= 120
+  const int TOP = 70, STEP = 20, LVL_STEP = 24, SUB = 10, TY = 0;
+#else
+  const int TOP = 24, STEP = 14, LVL_STEP = 18, SUB = 9, TY = 7;
+  spr.setFont((const uint8_t*)u8g2_font_chill7_h_cjk);
+#endif
   spr.fillRect(0, TOP, W, H - TOP, p.bg);
   spr.setTextSize(1);
   int y = TOP + 16;
 
+  // Narrow-canvas HUD has tighter indicator spacing. The wide layout positions
+  // (54/+16 hearts, 38/+9 fed dots, 54/+13 energy bars) assume the AMOLED
+  // boards' 184-wide canvas; on the 1.47" LCD (canvas 86 wide) hearts 2/3
+  // and the right half of fed/energy fall off the edge.
+#if BOARD_HW_W >= 120
+  constexpr int HUD_MOOD_X   = 54, HUD_MOOD_STEP = 16;
+  constexpr int HUD_FED_X    = 38, HUD_FED_STEP  = 9;
+  constexpr int HUD_EN_X     = 54, HUD_EN_STEP   = 13;
+  constexpr int HUD_EN_RECT_W = 9;
+#else
+  constexpr int HUD_MOOD_X   = 30, HUD_MOOD_STEP = 11;
+  constexpr int HUD_FED_X    = 22, HUD_FED_STEP  = 6;
+  constexpr int HUD_EN_X     = 36, HUD_EN_STEP   = 9;
+  constexpr int HUD_EN_RECT_W = 6;
+#endif
+
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(SAFE_L, y - 2); spr.print("mood");
+  spr.setCursor(SAFE_L, y - 2 + TY); spr.print("mood");
   uint8_t mood = statsMoodTier();
   uint16_t moodCol = (mood >= 3) ? RED : (mood >= 2) ? HOT : p.textDim;
-  for (int i = 0; i < 4; i++) tinyHeart(54 + i * 16, y + 2, i < mood, moodCol);
+  for (int i = 0; i < 4; i++) tinyHeart(HUD_MOOD_X + i * HUD_MOOD_STEP, y + 2, i < mood, moodCol);
 
-  y += 20;
-  spr.setCursor(SAFE_L, y - 2); spr.print("fed");
+  y += STEP;
+  spr.setCursor(SAFE_L, y - 2 + TY); spr.print("fed");
   uint8_t fed = statsFedProgress();
   for (int i = 0; i < 10; i++) {
-    int px = 38 + i * 9;
+    int px = HUD_FED_X + i * HUD_FED_STEP;
     if (i < fed) spr.fillCircle(px, y + 1, 2, p.body);
     else spr.drawCircle(px, y + 1, 2, p.textDim);
   }
 
-  y += 20;
-  spr.setCursor(SAFE_L, y - 2); spr.print("energy");
+  y += STEP;
+  spr.setCursor(SAFE_L, y - 2 + TY); spr.print("energy");
   uint8_t en = statsEnergyTier();
   uint16_t enCol = (en >= 4) ? 0x07FF : (en >= 2) ? 0xFFE0 : HOT;
   for (int i = 0; i < 5; i++) {
-    int px = 54 + i * 13;
-    if (i < en) spr.fillRect(px, y - 2, 9, 6, enCol);
-    else spr.drawRect(px, y - 2, 9, 6, p.textDim);
+    int px = HUD_EN_X + i * HUD_EN_STEP;
+    if (i < en) spr.fillRect(px, y - 2, HUD_EN_RECT_W, 6, enCol);
+    else spr.drawRect(px, y - 2, HUD_EN_RECT_W, 6, p.textDim);
   }
 
-  y += 24;
+  y += LVL_STEP;
   spr.fillRoundRect(SAFE_L, y - 2, 42, 14, 3, p.body);
   spr.setTextColor(p.bg, p.body);
-  spr.setCursor(SAFE_L + 5, y + 1); spr.printf("Lv %u", stats().level);
+  spr.setCursor(SAFE_L + 5, y + 1 + TY); spr.printf("Lv %u", stats().level);
 
-  y += 20;
+  y += STEP;
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(SAFE_L, y);
+  spr.setCursor(SAFE_L, y + TY);
   spr.printf("approved %u", stats().approvals);
-  spr.setCursor(SAFE_L, y + 10);
+  spr.setCursor(SAFE_L, y + SUB + TY);
   spr.printf("denied   %u", stats().denials);
   uint32_t nap = stats().napSeconds;
-  spr.setCursor(SAFE_L, y + 20);
+  spr.setCursor(SAFE_L, y + SUB * 2 + TY);
   spr.printf("napped   %luh%02lum", nap/3600, (nap/60)%60);
   auto tokFmt = [&](const char* label, uint32_t v, int yPx) {
-    spr.setCursor(SAFE_L, yPx);
+    spr.setCursor(SAFE_L, yPx + TY);
     if (v >= 1000000)   spr.printf("%s%lu.%luM", label, v/1000000, (v/100000)%10);
     else if (v >= 1000) spr.printf("%s%lu.%luK", label, v/1000, (v/100)%10);
     else                spr.printf("%s%lu", label, v);
   };
-  tokFmt("tokens   ", stats().tokens, y + 30);
-  tokFmt("today    ", tama.tokensToday, y + 40);
+  tokFmt("tokens   ", stats().tokens, y + SUB * 3);
+  tokFmt("today    ", tama.tokensToday, y + SUB * 4);
+
+#if BOARD_HW_W < 120
+  setDefaultFont();   // restore default font for subsequent drawers
+#endif
 }
 
 static void drawPetHowTo(const Palette& p) {
@@ -872,23 +1027,60 @@ static void drawPetHowTo(const Palette& p) {
 
 void drawPet() {
   const Palette& p = characterPalette();
+  // Header y matches drawPetStats' TOP so the title/page-counter line sits at
+  // the top of the cleared stats region (above the indicator rows).
+#if BOARD_HW_W >= 120
   int y = 70;
+#else
+  int y = 24;
+#endif
 
   if (petPage == 0) drawPetStats(p);
   else drawPetHowTo(p);
 
-  // Header on top of whichever page drew — title left, counter right
+  // Header on top of whichever page drew — title left, counter right.
+  // Narrow boards use chill7 to match the body font; add 7 to setCursor y to
+  // compensate for chill7's baseline anchoring vs default font's top-left.
   spr.setTextSize(1);
-  spr.setTextColor(p.text, p.bg);
-  spr.setCursor(SAFE_L, y + 2);
-  if (ownerName()[0]) {
-    spr.printf("%s's %s", ownerName(), petName());
-  } else {
-    spr.print(petName());
+#if BOARD_HW_W < 120
+  spr.setFont((const uint8_t*)u8g2_font_chill7_h_cjk);
+  const int HDR_TY = 7;
+#else
+  const int HDR_TY = 0;
+#endif
+  // Build the title once so we can measure + place the counter dynamically.
+  char title[40];
+  if (ownerName()[0]) snprintf(title, sizeof(title), "%s's %s", ownerName(), petName());
+  else                snprintf(title, sizeof(title), "%s", petName());
+
+  // Counter is right-aligned via getTextBounds so it always sits at SAFE_R
+  // regardless of font. The old fixed SAFE_R-24 offset assumed default-font
+  // widths and the AMOLED 184-px canvas, so on narrow chill7 boards the
+  // counter landed inside the title text — "Ranjith's Buddy2/2" with no gap.
+  char ctr[12]; snprintf(ctr, sizeof(ctr), "%u/%u", petPage + 1, PET_PAGES);
+  int16_t bx, by; uint16_t cw, ch;
+  spr.getTextBounds(ctr, 0, 0, &bx, &by, &cw, &ch);
+  int counterX = SAFE_R - (int)cw;
+
+  // Truncate the title so it can't overrun the counter. Drop chars from the
+  // end one at a time until the rendered width fits, leaving a small gap.
+  uint16_t tw, th;
+  spr.getTextBounds(title, 0, 0, &bx, &by, &tw, &th);
+  int maxTitleW = counterX - SAFE_L - 4;
+  while ((int)tw > maxTitleW && strlen(title) > 1) {
+    title[strlen(title) - 1] = 0;
+    spr.getTextBounds(title, 0, 0, &bx, &by, &tw, &th);
   }
+
+  spr.setTextColor(p.text, p.bg);
+  spr.setCursor(SAFE_L, y + 2 + HDR_TY);
+  spr.print(title);
   spr.setTextColor(p.textDim, p.bg);
-  spr.setCursor(SAFE_R - 24, y + 2);
-  spr.printf("%u/%u", petPage + 1, PET_PAGES);
+  spr.setCursor(counterX, y + 2 + HDR_TY);
+  spr.print(ctr);
+#if BOARD_HW_W < 120
+  setDefaultFont();
+#endif
 }
 
 void drawHUD() {
@@ -917,7 +1109,7 @@ void drawHUD() {
     spr.setTextColor(p.text, p.bg);
     spr.setCursor(SAFE_L, SAFE_B - 4);
     spr.print(tama.msg);
-    spr.setFont((const GFXfont*)NULL);
+    setDefaultFont();
     return;
   }
 
@@ -944,7 +1136,7 @@ void drawHUD() {
     spr.print(disp[row]);
   }
 
-  spr.setFont((const GFXfont*)NULL);
+  setDefaultFont();
 
   if (msgScroll > 0) {
     spr.setTextSize(1);
@@ -956,6 +1148,7 @@ void drawHUD() {
 
 void setup() {
   hwInit();                  // Wire + expander + display + power + input + IMU + RTC + audio
+  setDefaultFont();          // narrow boards switch to chill7; AMOLEDs keep Adafruit default
   startBt();                 // BLE stays always-on
   applyBrightness();
   lastInteractMs = millis();
@@ -1070,6 +1263,31 @@ void loop() {
   if (hwBtnA().pressedFor(600) && !btnALong && !swallowBtnA) {
     btnALong = true;
     beep(800, 60);
+#if BOARD_INPUT_BOOT_ONLY
+    // Single-button board: BtnA-long inside a panel CONFIRMS the current
+    // selection (the role that BtnB-short plays on the other boards). Outside
+    // any panel it still opens the menu. Without this, holding the only
+    // physical button to confirm would instead close the menu.
+    //
+    // Also: hold-on-prompt = DENY. There's no BtnB to reach the deny path
+    // otherwise, so a long press while a permission prompt is up sends the
+    // deny decision (mirrors the BtnB-short handler in the wide-board path).
+    if (inPrompt) {
+      char cmd[96];
+      snprintf(cmd, sizeof(cmd), "{\"cmd\":\"permission\",\"id\":\"%s\",\"decision\":\"deny\"}", tama.promptId);
+      sendCmd(cmd);
+      responseSent = true;
+      statsOnDenial();
+      beep(600, 60);
+    }
+    else if (resetOpen)    applyReset(resetSel);
+    else if (settingsOpen) applySetting(settingsSel);
+    else if (menuOpen)     menuConfirm();
+    else {
+      menuOpen = true;
+      menuSel  = 0;
+    }
+#else
     if (resetOpen) { resetOpen = false; }
     else if (settingsOpen) { settingsOpen = false; characterInvalidate(); }
     else {
@@ -1077,6 +1295,7 @@ void loop() {
       menuSel = 0;
       if (!menuOpen) characterInvalidate();
     }
+#endif
     Serial.println(menuOpen ? "menu open" : "menu close");
   }
   if (hwBtnA().wasReleased) {
@@ -1102,8 +1321,16 @@ void loop() {
         menuSel = (menuSel + 1) % MENU_N;
       } else {
         beep(1800, 30);
+#if BOARD_INPUT_BOOT_ONLY
+        // Single-button board has no BtnB to advance pages within a mode
+        // (info 1/6 → 2/6, pet 1/2 → 2/2). swipeNextPage already implements
+        // the flat 9-page cycle that covers everything, so a short BtnA tap
+        // walks through all of it.
+        swipeNextPage();
+#else
         displayMode = (displayMode + 1) % DISP_COUNT;
         applyDisplayMode();
+#endif
       }
     }
     btnALong = false;
@@ -1431,7 +1658,8 @@ void loop() {
           || inPrompt || menuOpen || settingsOpen || resetOpen
           || (int32_t)(now - oneShotUntil) < 0
           || xferActive()
-          || blePasskey()) {
+          || blePasskey()
+          || displayMode == DISP_INFO) {   // keep auto-scroll smooth
     loopMs = 16;
   } else {
     loopMs = 100;
@@ -1448,7 +1676,12 @@ void loop() {
       delay(slice);
       slept += slice;
       if (hwTouchIrqPending()) break;
+#if BOARD_HAS_KEY1
       if (digitalRead(PIN_KEY1) == LOW) break;
+#elif BOARD_BTN_THIRD
+      // No KEY1 — use BOOT key for the wake-from-idle break.
+      if (digitalRead(PIN_KEY_BOOT) == LOW) break;
+#endif
     }
   }
 }

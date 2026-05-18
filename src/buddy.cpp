@@ -42,6 +42,22 @@ static inline Arduino_GFX* tgt() {
 // and re-center per line so the padding doesn't push ink off-screen.
 static uint8_t _scale = 1;
 
+// ASCII pet art is a fixed-width grid drawn glyph-by-glyph. main.cpp sets
+// chill7 (a proportional u8g2 font) as the global default on narrow boards
+// for UI text — that would mangle the buddy grid. Force the Adafruit default
+// (6×8 fixed) around every buddy render, then restore chill7 so subsequent
+// UI text (HUD message, menu, info) keeps the small legible font.
+static inline void buddyForceAsciiFont() {
+  tgt()->setFont((const GFXfont*)NULL);
+}
+static inline void buddyRestoreUiFont() {
+#if BOARD_HW_W < 120
+  tgt()->setFont((const uint8_t*)u8g2_font_chill7_h_cjk);
+#else
+  tgt()->setFont((const GFXfont*)NULL);
+#endif
+}
+
 void buddyPrintLine(const char* line, int yPx, uint16_t color, int xOff) {
   int len = strlen(line);
   if (_scale > 1) {
@@ -155,7 +171,14 @@ static uint8_t lastDrawnSpecies = 0xFF;
 void buddyInvalidate() { lastDrawnState = 0xFF; }
 
 void buddySetPeek(bool peek) {
+#if BOARD_HW_W < 120
+  // Narrow canvas: ASCII buddy at 2× overruns y≈160. Force 1× always so the
+  // home-screen pet sits inside the 160-tall canvas.
+  (void)peek;
+  uint8_t s = 1;
+#else
   uint8_t s = peek ? 1 : 2;
+#endif
   if (s == _scale) return;
   _scale = s;
   buddyInvalidate();
@@ -173,8 +196,10 @@ void buddyRenderTo(Arduino_GFX* override, uint8_t personaState) {
   if ((int32_t)(now - nextTickAt) >= 0) { nextTickAt = now + TICK_MS; tickCount++; }
   Arduino_GFX* prev = _explicitTgt;
   _explicitTgt = override;
+  buddyForceAsciiFont();
   const Species* sp = SPECIES_TABLE[currentSpeciesIdx];
   if (sp->states[personaState]) sp->states[personaState](tickCount);
+  buddyRestoreUiFont();
   _explicitTgt = prev; _scale = prevS;
 }
 
@@ -199,6 +224,8 @@ void buddyTick(uint8_t personaState) {
   tgt()->fillRect(0, 0, BUDDY_CANVAS_W,
                   (BUDDY_Y_BASE + 5 * BUDDY_CHAR_H + 12) * _scale, BUDDY_BG);
 
+  buddyForceAsciiFont();
   const Species* sp = SPECIES_TABLE[currentSpeciesIdx];
   if (sp->states[personaState]) sp->states[personaState](tickCount);
+  buddyRestoreUiFont();
 }

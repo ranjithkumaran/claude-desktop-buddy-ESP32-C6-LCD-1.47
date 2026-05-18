@@ -1,5 +1,14 @@
 #include "hw/imu.h"
 #include "hw/pins.h"
+#include <Arduino.h>
+
+#if !BOARD_HAS_IMU
+// Stub for boards with no IMU (e.g. ESP32-C6-LCD-1.47). Accelerometer reads
+// return zero so shake-to-wake never fires; callers don't need to check.
+bool hwImuInit() { return true; }
+void hwImuAccel(float* ax, float* ay, float* az) { *ax = *ay = *az = 0.0f; }
+#else
+
 #include <Wire.h>
 #include <SensorQMI8658.hpp>
 
@@ -31,3 +40,5 @@ void hwImuAccel(float* ax, float* ay, float* az) {
   // detector wants az < -0.7 for face-DOWN. Flip the sign.
   *az = -d.z;
 }
+
+#endif // BOARD_HAS_IMU

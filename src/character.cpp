@@ -49,9 +49,16 @@ static inline Arduino_GFX* tgt() {
 }
 // Peek mode renders at half scale (2:1 nearest-neighbor in gifDrawCb) so
 // the whole pet fits the 70px window instead of cropping the top.
+// On narrow canvases (1.47" LCD, HW_W < 120) the full-size buddy is also
+// halved — a 140 px-tall pet otherwise overruns the 160-tall canvas.
 static void gifPlace() {
+#if BOARD_HW_W < 120
+  int outW = gifW / 2;
+  int outH = gifH / 2;
+#else
   int outW = peekMode ? gifW / 2 : gifW;
   int outH = peekMode ? gifH / 2 : gifH;
+#endif
   gifX = (tgt()->width() - outW) / 2;
   gifY = peekMode ? (PEEK_TOP - outH) / 2 : (140 - outH) / 2;
 }

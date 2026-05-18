@@ -1,6 +1,14 @@
 #include "hw/audio.h"
 #include "hw/pins.h"
 #include <Arduino.h>
+
+#if !BOARD_HAS_AUDIO
+// Stub for boards with no audio codec (e.g. ESP32-C6-LCD-1.47).
+// hwBeep is a no-op; callers don't need to check.
+bool hwAudioInit() { return true; }
+void hwBeep(uint16_t, uint16_t) {}
+#else
+
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -111,3 +119,5 @@ void hwBeep(uint16_t freqHz, uint16_t durMs) {
   BeepReq r{ freqHz, durMs };
   xQueueSend(s_beepQ, &r, 0);
 }
+
+#endif // BOARD_HAS_AUDIO

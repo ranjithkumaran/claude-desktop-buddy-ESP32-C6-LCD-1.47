@@ -12,8 +12,10 @@ void hwInit() {
   delay(500);
   Serial.println("\n=== claude-buddy waveshare boot ===");
 
+#if BOARD_HAS_I2C
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(400000);
+#endif
 
   if (!hwExpanderInit())  die("expander");
 #if BOARD_LCD_RST_VIA_PMU

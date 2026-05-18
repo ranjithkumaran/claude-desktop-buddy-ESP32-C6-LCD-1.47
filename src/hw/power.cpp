@@ -1,5 +1,17 @@
 #include "hw/power.h"
 #include "hw/pins.h"
+#include <Arduino.h>
+
+#if !BOARD_HAS_AXP2101
+// Stub for boards with no PMU (e.g. ESP32-C6-LCD-1.47). The info page reads
+// 0 mV / 0 % / no charging — adequate for a board that's just USB-powered.
+bool hwPowerInit() { return true; }
+HwBattery hwBattery() { return HwBattery{}; }
+void hwPowerOff() {}
+bool hwAxpPekeyShortPress() { return false; }
+bool hwAxpPekeyLongPress()  { return false; }
+#else
+
 #include <Wire.h>
 #include <XPowersLib.h>
 
@@ -85,3 +97,5 @@ bool hwAxpPekeyLongPress() {
 }
 
 XPowersPMU* hwPmuRef() { return &s_pmu; }
+
+#endif // BOARD_HAS_AXP2101

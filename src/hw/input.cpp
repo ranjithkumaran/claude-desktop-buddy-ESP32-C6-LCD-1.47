@@ -4,33 +4,43 @@
 #include "hw/power.h"
 #include <Arduino.h>
 
-#if BOARD_TOUCH_CST92XX
-  #include <Wire.h>
-  #include "TouchDrvCSTXXX.hpp"
-#else
-  #include <Arduino_DriveBus_Library.h>
+#if BOARD_HAS_TOUCH
+  #if BOARD_TOUCH_CST92XX
+    #include <Wire.h>
+    #include "TouchDrvCSTXXX.hpp"
+  #else
+    #include <Arduino_DriveBus_Library.h>
+  #endif
 #endif
 
 static HwBtn   s_a, s_b;
 static HwTouch s_tp;
 static uint8_t s_axpEvt = 0;
 
-#if BOARD_TOUCH_CST92XX
-static TouchDrvCST92xx s_cst;
+#if BOARD_HAS_TOUCH
+  #if BOARD_TOUCH_CST92XX
+  static TouchDrvCST92xx s_cst;
+  #else
+  static std::shared_ptr<Arduino_IIC_DriveBus> s_iicBus;
+  static std::unique_ptr<Arduino_IIC>          s_ft3168;
+  #endif
+  static volatile bool                          s_tpIrqFlag = false;
+  static void IRAM_ATTR onTouchIrq() { s_tpIrqFlag = true; }
 #else
-static std::shared_ptr<Arduino_IIC_DriveBus> s_iicBus;
-static std::unique_ptr<Arduino_IIC>          s_ft3168;
+  // No touch hardware — s_tp stays default-constructed (down=false), and the
+  // IRQ-pending peek always returns false. main.cpp's hwTouch()/hwTouchIrqPending()
+  // callers will see an always-released finger.
+  static const bool s_tpIrqFlag = false;
 #endif
-static volatile bool                          s_tpIrqFlag = false;
-
-static void IRAM_ATTR onTouchIrq() { s_tpIrqFlag = true; }
 
 bool HwBtn::pressedFor(uint32_t ms) {
   return isPressed && (millis() - pressedAt) >= ms;
 }
 
 bool hwInputInit() {
+#if BOARD_HAS_KEY1
   pinMode(PIN_KEY1, INPUT_PULLUP);   // GPIO0 has external pullup; INPUT_PULLUP is harmless
+#endif
 #if BOARD_HAS_KEY2
   pinMode(PIN_KEY2, INPUT_PULLUP);   // External R18 10K already pulls high; INPUT_PULLUP is harmless
 #endif
@@ -38,7 +48,9 @@ bool hwInputInit() {
   pinMode(PIN_KEY_BOOT, INPUT_PULLUP);   // External R8 10K already pulls high; INPUT_PULLUP is harmless
 #endif
 
-#if BOARD_TOUCH_CST92XX
+#if !BOARD_HAS_TOUCH
+  return true;
+#elif BOARD_TOUCH_CST92XX
   // CST92xx @ 0x5A via SensorLib. Reset is handled by hwExpanderResetSequence()
   // (TP_RST is shared with LCD_RESET on 1.75C), so pass rstPin=-1 to skip the
   // driver's internal reset — otherwise it would also re-reset the display.
@@ -66,6 +78,7 @@ bool hwInputInit() {
 #endif
 }
 
+#if BOARD_HAS_KEY1
 static void scanKey1() {
   uint32_t now = millis();
 #if BOARD_KEY1_ACTIVE_HIGH
@@ -78,6 +91,7 @@ static void scanKey1() {
   if (s_a.wasPressed) s_a.pressedAt = now;
   s_a.isPressed = pressed;
 }
+#endif
 
 #if BOARD_HAS_KEY2
 static void scanKey2() {
@@ -91,30 +105,86 @@ static void scanKey2() {
 #endif
 
 #if BOARD_BTN_THIRD
-// BOOT key (GPIO9 on 2.16) acts as a menu shortcut: a short tap synthesises
-// BTN_A_LONG_PRESS, which main.cpp's existing handler treats as "open menu".
-// main.cpp itself is unchanged.
+// BOOT-key handling has two flavours.
+//
+// BOARD_INPUT_BOOT_ONLY=0 (existing C6-2.16 / S3-2.16):
+//   BOOT is bonus — a short tap synthesises BtnA-long (legacy behaviour;
+//   real BtnA / BtnB handle the rest). scanKey1() runs every frame and
+//   re-derives s_a from the real PWR key, so the synthesised edges don't
+//   persist beyond the synth frame.
+//
+// BOARD_INPUT_BOOT_ONLY=1 (C6-LCD-1.47, single button):
+//   BOOT IS BtnA. We mirror the physical button into s_a directly:
+//     - press edge   → isPressed=true, wasPressed=true, pressedAt=now
+//     - held         → isPressed stays true, pressedAt unchanged (so main.cpp's
+//                      pressedFor(600) fires live at 600 ms → menu opens
+//                      DURING the hold, same UX as real BtnA on AMOLED boards)
+//     - release edge → isPressed=false, wasReleased=true
+//   BtnB doesn't exist physically; menu CONFIRM is reached by overriding
+//   main.cpp's BtnA-long-when-panel-open behaviour to confirm instead of
+//   close (guarded by BOARD_INPUT_BOOT_ONLY in main.cpp).
+//
+// Critical: without a separate scanKey1() running every frame to clear edges,
+// scanBootKey() must clear s_a/s_b edge flags itself on EVERY scan, otherwise
+// a one-tap event would persist and main.cpp would re-fire its release handler
+// every frame (= pig flashing, menu thrashing — observed bug 2025-11).
 static uint32_t s_bootPressedAt = 0;
 static void scanBootKey() {
   bool pressed = digitalRead(PIN_KEY_BOOT) == LOW;
+  uint32_t now = millis();
+
+#if BOARD_INPUT_BOOT_ONLY
+  // Single-frame edge pulses — clear every scan, set only on the event frame.
+  s_a.wasPressed  = false;
+  s_a.wasReleased = false;
+  s_b.wasPressed  = false;
+  s_b.wasReleased = false;
+
   if (pressed && !s_bootPressedAt) {
-    s_bootPressedAt = millis();
+    // Press edge.
+    s_bootPressedAt = now;
+    s_a.isPressed   = true;
+    s_a.wasPressed  = true;
+    s_a.pressedAt   = now;
+  } else if (pressed && s_bootPressedAt) {
+    // Held — keep isPressed=true so pressedFor(600) accumulates naturally
+    // from the original pressedAt. main.cpp opens the menu mid-hold at 600ms.
+    s_a.isPressed = true;
   } else if (!pressed && s_bootPressedAt) {
-    uint32_t held = millis() - s_bootPressedAt;
+    // Release edge.
+    uint32_t held = now - s_bootPressedAt;
+    s_bootPressedAt = 0;
+    s_a.isPressed   = false;
+    if (held >= 30) {
+      // Above debounce floor — publish the release. main.cpp decides whether
+      // the short-release action runs based on btnALong (set if pressedFor(600)
+      // already fired mid-hold).
+      s_a.wasReleased = true;
+    }
+  }
+  // (!pressed && !s_bootPressedAt): idle — leave isPressed=false, no edges
+#else
+  // Legacy: BOOT short tap synthesises BtnA long-press only. scanKey1 will
+  // clear these edges on the next frame.
+  if (pressed && !s_bootPressedAt) {
+    s_bootPressedAt = now;
+  } else if (!pressed && s_bootPressedAt) {
+    uint32_t held = now - s_bootPressedAt;
     s_bootPressedAt = 0;
     if (held > 30 && held < 1000) {
-      // Synthesise a long-press of A so the menu opens.
       s_a.wasPressed  = true;
       s_a.wasReleased = true;
-      s_a.pressedAt   = millis() - 1500;  // > LONG_PRESS_MS so isLongPress check passes
+      s_a.pressedAt   = now - 1500;
       s_a.isPressed   = false;
     }
   }
+#endif
 }
 #endif
 
 #if !BOARD_HAS_KEY2
 static void scanAxp() {
+#if BOARD_HAS_AXP2101
   if (hwExpanderAxpIrqLow()) {
     if (hwAxpPekeyShortPress()) s_axpEvt = 0x02;
     if (hwAxpPekeyLongPress())  s_axpEvt = 0x04;
@@ -126,9 +196,14 @@ static void scanAxp() {
   s_b.isPressed   = false;
   if (pressed) s_axpEvt = 0;
   // 0x04 stays in s_axpEvt until consumed by hwAxpBtnEvent()
+#else
+  // No PMU: BtnB only sourced from scanBootKey() under BOARD_INPUT_BOOT_ONLY,
+  // or simply never fires.
+#endif
 }
 #endif
 
+#if BOARD_HAS_TOUCH
 static void scanTouch() {
   // Poll when IRQ fires OR when a finger was down last frame — both FT3168
   // and CST92xx only reliably IRQ on state edges, so a drag wouldn't advance
@@ -206,9 +281,20 @@ static void scanTouch() {
   }
 #endif
 }
+#else  // !BOARD_HAS_TOUCH
+static inline void scanTouch() {
+  // No touch hardware. Clear pulse flags so consumers (gesture/swipe
+  // classifier in main.cpp) see a steady "not touching" state.
+  s_tp.justPressed  = false;
+  s_tp.justReleased = false;
+  s_tp.down         = false;
+}
+#endif
 
 void hwInputUpdate() {
+#if BOARD_HAS_KEY1
   scanKey1();
+#endif
 #if BOARD_HAS_KEY2
   scanKey2();
 #else
