@@ -1,6 +1,14 @@
-# claude-desktop-buddy — ESP32 AMOLED port
+# claude-desktop-buddy — ESP32 AMOLED port (+ ESP32-C6-LCD-1.47)
 
 <img src="image.jpg" width="400" />
+
+> **This fork adds support for the Waveshare ESP32-C6-LCD-1.47** (172×320
+> ST7789 IPS LCD, ESP32-C6, single BOOT key, no PSRAM / PMU / IMU / audio /
+> touch). The four upstream AMOLED boards are unchanged. See the
+> [ESP32-C6-LCD-1.47 section](#esp32-c6-lcd-147-this-fork) below.
+> Upstream: [vthinkxie/claude-desktop-buddy-esp32](https://github.com/vthinkxie/claude-desktop-buddy-esp32).
+
+<img src="image-c6-lcd-1.47.jpg" width="400" />
 
 Claude for macOS and Windows can connect Claude Cowork and Claude Code to
 maker devices over BLE, so developers and makers can build hardware that
@@ -8,8 +16,8 @@ displays permission prompts, recent messages, and other interactions.
 
 This is a port of [anthropics/claude-desktop-buddy](https://github.com/anthropics/claude-desktop-buddy)
 (originally targeting M5StickC Plus) to four Waveshare ESP32 AMOLED
-boards. The BLE wire protocol is unchanged — same pairing, same desktop
-apps, just a larger screen.
+boards (and now the ESP32-C6-LCD-1.47 1.47" SPI LCD board). The BLE wire
+protocol is unchanged — same pairing, same desktop apps.
 
 > **Building your own device?** You don't need any of the code here. See
 > **[REFERENCE.md](REFERENCE.md)** for the wire protocol: Nordic UART
@@ -42,6 +50,27 @@ UI code, fonts and all buddy rendering are completely board-agnostic.
 The firmware targets ESP32-S3 and ESP32-C6 with Arduino framework 3.x via the
 [pioarduino](https://github.com/pioarduino/platform-espressif32) platform.
 
+### ESP32-C6-LCD-1.47 (this fork)
+
+A separate, much smaller board than the four AMOLEDs above.
+
+| Spec | Value |
+| --- | --- |
+| Board | [Waveshare ESP32-C6-LCD-1.47](https://www.waveshare.com/wiki/ESP32-C6-LCD-1.47) |
+| MCU | ESP32-C6FH4 (160 MHz RISC-V single-core, 4 MB flash, **no PSRAM**) |
+| Panel | 1.47" 172×320 IPS LCD, ST7789 over 4-wire SPI |
+| Touch / PMU / IMU / Audio | **none** — pure display + 1 button + USB-C |
+| Button | single BOOT key (GPIO 9) carries the entire UI (see Controls) |
+| Canvas → panel | 86×160 canvas → **2× nearest-neighbor** → 172×320 (full panel) |
+
+Because the canvas is so much smaller, this port uses chill7 (the small
+legible u8g2 font drawHud's transcript already uses) as the global
+default and ships narrow-canvas variants of every panel layout
+(`#if BOARD_HW_W < 120` in `main.cpp`). The buddy GIF / ASCII pet are
+forced to half scale so they don't overrun the 160 px canvas. Missing
+peripherals (PMU, IMU, audio codec, touch driver) are gated behind
+capability flags and replaced with no-op stubs.
+
 ## Flashing
 
 Install
@@ -60,6 +89,9 @@ pio run -e waveshare-esp32c6-touch-amoled-2-16 -t upload
 
 # 2.16" rounded-square AMOLED (ESP32-S3)
 pio run -e waveshare-esp32s3-touch-amoled-2-16 -t upload
+
+# 1.47" ST7789 SPI LCD (ESP32-C6, single BOOT key)
+pio run -e waveshare-esp32c6-lcd-1-47 -t upload
 ```
 
 If you're starting from a previously-flashed device (e.g. the factory
@@ -159,6 +191,25 @@ The board has three physical keys:
 | **PWR held 4 s**         | power off (AXP cuts ALDO3; press again to wake) |             |             |             |
 | **Shake**                | dizzy                |             |             | —           |
 | **Face-down**            | nap (energy refills) |             |             |             |
+
+### ESP32-C6-LCD-1.47 controls
+
+Single physical button (BOOT, GPIO 9). The RESET button next to it is a
+hardware MCU reset — nothing to do with the UI. Two press lengths:
+
+|                            | Normal                              | Pet / Info  | Menu / Settings / Reset | Approval    |
+| -------------------------- | ----------------------------------- | ----------- | ----------------------- | ----------- |
+| **Tap** (<0.6 s)           | next page (flat 9-page cycle)       | next page   | next item               | **approve** |
+| **Hold** (≥0.6 s, fires live) | open menu                        | open menu   | **confirm**             | **deny**    |
+
+Notes:
+- The flat-cycle tap walks Normal → Pet 1/2 → Pet 2/2 → Info 1/6 → … →
+  Info 6/6 → Normal. (On the AMOLED boards the A-short cycles modes and
+  B-short cycles pages-within-mode; with only one button this fork
+  collapses both into a single tap.)
+- Info pages auto-scroll vertically when their content overruns the 160 px
+  canvas (1.4 s dwell at top, ~17 px/s scroll, dwell at bottom, repeat).
+- No shake / face-down / screen-off — no IMU, no PMU on this board.
 
 ### Touch (all boards)
 
